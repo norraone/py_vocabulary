@@ -223,33 +223,11 @@ class ScoreResource(Resource):
     def get(self, current_user):
         """获取用户成绩"""
         try:
-            score = db.get_user_score(current_user)
-            streak_days = db.get_streak_days(current_user)
-            logger.info("Fetched score for user: %s", current_user)
-            return {
-                'score': score,
-                'streak_days': streak_days
-            }
-            
+            score = db.get_total_score(current_user)
+            return {'score': score}
         except Exception as e:
-            logger.error("Error during fetching score: %s", str(e), exc_info=True)
-            return {'message': 'Internal server error'}, 500
-
-class CheckinResource(Resource):
-    @token_required
-    def post(self, current_user):
-        """用户打卡"""
-        try:
-            streak_days = db.get_streak_days(current_user)
-            logger.info("Checkin successful for user: %s", current_user)
-            return {
-                'message': 'Checkin successful',
-                'streak_days': streak_days
-            }
-            
-        except Exception as e:
-            logger.error("Error during checkin: %s", str(e), exc_info=True)
-            return {'message': 'Internal server error'}, 500
+            logger.error(f"Error getting score: {str(e)}")
+            return {'message': 'Error getting score'}, 500
 
 class LearningResource(Resource):
     @token_required
@@ -287,11 +265,10 @@ class LearningResource(Resource):
 api.add_resource(AuthResource, '/api/auth/login')
 api.add_resource(RegisterResource, '/api/auth/register')
 api.add_resource(WordResource, '/api/words')
-api.add_resource(WrongWordsResource, '/api/words/wrong')
+api.add_resource(WrongWordsResource, '/api/wrong-words')
 api.add_resource(ScoreResource, '/api/score')
-api.add_resource(CheckinResource, '/api/checkin')
 api.add_resource(LearningResource, '/api/learning')
 
 if __name__ == '__main__':
     logger.info("Starting Flask server on http://127.0.0.1:5000")
-    app.run(debug=True, host='127.0.0.1', port=5000)
+    app.run(debug=True)

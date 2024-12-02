@@ -6,7 +6,6 @@
           <h2>个性化背词系统</h2>
           <div class="user-info">
             <span>得分: {{ score }}</span>
-            <span>连续打卡: {{ streakDays }}天</span>
             <el-button @click="logout">退出</el-button>
           </div>
         </div>
@@ -22,9 +21,6 @@
                 </div>
               </template>
               <el-menu>
-                <el-menu-item @click="currentView = 'wordList'">
-                  <span>单词预览</span>
-                </el-menu-item>
                 <el-menu-item @click="startLearning">
                   <span>背诵单词</span>
                 </el-menu-item>
@@ -72,7 +68,6 @@ export default {
     const learningWords = ref([])
     const learningMode = ref('')
     const score = ref(0)
-    const streakDays = ref(0)
 
     const fetchWords = async () => {
       try {
@@ -93,30 +88,29 @@ export default {
           headers: { Authorization: `Bearer ${token}` }
         })
         score.value = response.data.score
-        streakDays.value = response.data.streak_days
       } catch (error) {
         console.error('Error fetching score:', error)
       }
     }
 
-    const startLearning = () => {
-      learningWords.value = words.value
-      learningMode.value = 'ch2en'
-      currentView.value = 'learning'
+    const startLearning = async () => {
+      try {
+        currentView.value = 'learning'
+        learningMode.value = 'normal'
+        learningWords.value = words.value.slice(0, 10)
+      } catch (error) {
+        console.error('Error starting learning:', error)
+      }
     }
 
     const reviewWrongWords = async () => {
       try {
         const token = localStorage.getItem('token')
-        const response = await axios.get('/api/words/wrong', {
+        const response = await axios.get('/api/wrong-words', {
           headers: { Authorization: `Bearer ${token}` }
         })
-        if (response.data.length === 0) {
-          alert('没有错题，继续保持！')
-          return
-        }
         learningWords.value = response.data
-        learningMode.value = 'ch2en'
+        learningMode.value = 'review'
         currentView.value = 'learning'
       } catch (error) {
         console.error('Error fetching wrong words:', error)
@@ -144,7 +138,6 @@ export default {
       learningWords,
       learningMode,
       score,
-      streakDays,
       startLearning,
       reviewWrongWords,
       finishLearning,

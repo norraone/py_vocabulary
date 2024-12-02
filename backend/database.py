@@ -28,9 +28,7 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     username TEXT UNIQUE NOT NULL,
                     password TEXT NOT NULL,
-                    total_score INTEGER DEFAULT 0,
-                    streak_days INTEGER DEFAULT 0,
-                    last_login DATE
+                    total_score INTEGER DEFAULT 0
                 )
             ''')
 
@@ -68,8 +66,8 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    'INSERT INTO users (username, password, last_login) VALUES (?, ?, ?)',
-                    (username, password, datetime.now().date())
+                    'INSERT INTO users (username, password) VALUES (?, ?)',
+                    (username, password)
                 )
                 conn.commit()
                 return True
@@ -87,43 +85,7 @@ class Database:
             result = cursor.fetchone()
             
             if result and result[1] == password:
-                # 更新登录日期和连续打卡天数
-                last_login = self.get_last_login(result[0])
-                today = datetime.now().date()
-                
-                if last_login:
-                    days_diff = (today - last_login).days
-                    if days_diff == 1:  # 连续登录
-                        cursor.execute(
-                            'UPDATE users SET streak_days = streak_days + 1 WHERE id = ?',
-                            (result[0],)
-                        )
-                    elif days_diff > 1:  # 中断了连续登录
-                        cursor.execute(
-                            'UPDATE users SET streak_days = 1 WHERE id = ?',
-                            (result[0],)
-                        )
-                
-                cursor.execute(
-                    'UPDATE users SET last_login = ? WHERE id = ?',
-                    (today, result[0])
-                )
-                conn.commit()
-                return result[0]
-                
-            return None
-
-    def get_last_login(self, user_id):
-        """获取用户最后登录日期"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                'SELECT last_login FROM users WHERE id = ?',
-                (user_id,)
-            )
-            result = cursor.fetchone()
-            if result and result[0]:
-                return datetime.strptime(result[0], '%Y-%m-%d').date()
+                return result[0]  # Return user ID
             return None
 
     def add_word(self, word, part_of_speech, meaning):
@@ -189,14 +151,6 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT total_score FROM users WHERE id = ?', (user_id,))
-            result = cursor.fetchone()
-            return result[0] if result else 0
-
-    def get_streak_days(self, user_id):
-        """获取用户连续打卡天数"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT streak_days FROM users WHERE id = ?', (user_id,))
             result = cursor.fetchone()
             return result[0] if result else 0
 

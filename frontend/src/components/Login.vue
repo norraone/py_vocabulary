@@ -17,7 +17,6 @@
         <el-form-item>
           <el-button type="primary" @click="handleSubmit">{{ isLogin ? '登录' : '注册' }}</el-button>
           <el-button @click="toggleMode">{{ isLogin ? '去注册' : '去登录' }}</el-button>
-          <el-button @click="handleCheckin">打卡</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -130,29 +129,11 @@ export default {
       isLogin.value = !isLogin.value
     }
 
-    const handleCheckin = async () => {
-      try {
-        const token = localStorage.getItem('token')
-        if (!token) {
-          alert('请先登录')
-          return
-        }
-        
-        const response = await axios.post('/api/checkin', null, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        alert(`打卡成功！连续打卡${response.data.streak_days}天`)
-      } catch (error) {
-        console.error('Error:', error)
-      }
-    }
-
     return {
       isLogin,
       form,
       handleSubmit,
-      toggleMode,
-      handleCheckin
+      toggleMode
     }
   }
 }

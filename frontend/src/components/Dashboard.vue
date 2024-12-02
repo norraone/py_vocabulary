@@ -28,6 +28,9 @@
                 <el-menu-item @click="reviewWrongWords">
                   <span>错题复习</span>
                 </el-menu-item>
+                <el-menu-item @click="showWordList">
+                  <span>单词列表</span>
+                </el-menu-item>
                 <el-menu-item @click="showOverviewPanel">
                   <span>学习总览</span>
                 </el-menu-item>
@@ -79,7 +82,7 @@ export default {
   
   setup() {
     const router = useRouter()
-    const currentView = ref('wordList')
+    const currentView = ref('overview')
     const words = ref([])
     const learningWords = ref([])
     const learningMode = ref('')
@@ -255,6 +258,10 @@ export default {
       fetchLearningStats()
     }
 
+    const showWordList = () => {
+      currentView.value = 'wordList'
+    }
+
     const finishLearning = () => {
       currentView.value = 'wordList'
       fetchScore()
@@ -363,6 +370,7 @@ export default {
       startLearning,
       reviewWrongWords,
       showOverviewPanel,
+      showWordList,
       finishLearning,
       logout,
       resetProgress

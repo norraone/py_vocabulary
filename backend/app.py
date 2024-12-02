@@ -11,6 +11,7 @@ import functools
 import datetime
 from sqlalchemy import text
 import os
+import traceback
 
 # Configure logging with more detail
 logging.basicConfig(
@@ -292,6 +293,109 @@ class WordResource(Resource):
         except Exception as e:
             logger.error("Error during fetching words: %s", str(e), exc_info=True)
             return {'message': 'Internal server error', 'error': str(e), 'traceback': traceback.format_exc()}, 500
+
+    @token_required
+    def put(self, current_user, word_id):
+        """
+        更新单词信息
+        """
+        try:
+            data = request.get_json()
+            logger.debug(f"Received word update data: {data}")
+            logger.debug(f"Current user: {current_user}, Word ID: {word_id}")
+
+            # Validate input data
+            if not isinstance(data, dict):
+                logger.error(f"Invalid input data type: {type(data)}")
+                return jsonify({
+                    'message': '无效的输入数据',
+                    'error_details': f'Expected dict, got {type(data)}'
+                }), 400
+
+            # Use the database method directly instead of SQLAlchemy
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # First, check if the word exists
+                cursor.execute('SELECT * FROM words WHERE id = ?', (word_id,))
+                existing_word = cursor.fetchone()
+                
+                if not existing_word:
+                    logger.warning(f"Word not found with ID: {word_id}")
+                    return jsonify({'message': 'Word not found'}), 404
+
+                # Prepare update query
+                update_fields = []
+                update_values = []
+
+                # Validate and add update fields
+                if 'word' in data:
+                    if not isinstance(data['word'], str):
+                        logger.error(f"Invalid word type: {type(data['word'])}")
+                        return jsonify({
+                            'message': '单词格式错误',
+                            'error_details': f'Expected str, got {type(data["word"])}'
+                        }), 400
+                    update_fields.append('word = ?')
+                    update_values.append(data['word'])
+                
+                if 'part_of_speech' in data:
+                    if not isinstance(data.get('part_of_speech', ''), str):
+                        logger.error(f"Invalid part_of_speech type: {type(data['part_of_speech'])}")
+                        return jsonify({
+                            'message': '词性格式错误',
+                            'error_details': f'Expected str, got {type(data["part_of_speech"])}'
+                        }), 400
+                    update_fields.append('part_of_speech = ?')
+                    update_values.append(data['part_of_speech'])
+                
+                if 'meaning' in data:
+                    if not isinstance(data['meaning'], str):
+                        logger.error(f"Invalid meaning type: {type(data['meaning'])}")
+                        return jsonify({
+                            'message': '释义格式错误',
+                            'error_details': f'Expected str, got {type(data["meaning"])}'
+                        }), 400
+                    update_fields.append('meaning = ?')
+                    update_values.append(data['meaning'])
+
+                if not update_fields:
+                    logger.warning("No update fields provided")
+                    return jsonify({
+                        'message': '没有提供更新字段',
+                        'error_details': '至少需要更新一个字段'
+                    }), 400
+
+                # Add word_id to the end of values list for WHERE clause
+                update_values.append(word_id)
+
+                # Construct and execute update query
+                update_query = f"UPDATE words SET {', '.join(update_fields)} WHERE id = ?"
+                logger.debug(f"Update query: {update_query}")
+                logger.debug(f"Update values: {update_values}")
+
+                cursor.execute(update_query, update_values)
+                conn.commit()
+
+                logger.info(f"Word {word_id} updated successfully")
+                return jsonify({
+                    'message': '单词更新成功',
+                    'updated_fields': list(data.keys())
+                }), 200
+
+        except sqlite3.Error as e:
+            logger.error(f"SQLite error updating word: {str(e)}")
+            return jsonify({
+                'message': '数据库操作错误',
+                'error_details': str(e)
+            }), 500
+        except Exception as e:
+            logger.error(f"Unexpected error updating word: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return jsonify({
+                'message': '更新单词失败',
+                'error_details': str(e)
+            }), 500
 
 class WrongWordsResource(Resource):
     @token_required
@@ -698,7 +802,7 @@ class LearningTrendResource(Resource):
 # 注册API路由
 api.add_resource(AuthResource, '/api/auth/login')
 api.add_resource(RegisterResource, '/api/auth/register')
-api.add_resource(WordResource, '/api/words')
+api.add_resource(WordResource, '/api/words', '/api/words/<int:word_id>')
 api.add_resource(WrongWordsResource, '/api/wrong-words')
 api.add_resource(ScoreResource, '/api/score')
 api.add_resource(LearningResource, '/api/learn')

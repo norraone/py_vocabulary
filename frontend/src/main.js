@@ -5,8 +5,8 @@ import axios from 'axios'
 import App from './App.vue'
 import router from './router'
 
-// 配置axios默认值
-axios.defaults.baseURL = 'http://localhost:5000'
+// Remove the baseURL since we're using Vite's proxy
+// axios.defaults.baseURL = 'http://localhost:5000'
 
 const app = createApp(App)
 

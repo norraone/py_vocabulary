@@ -28,6 +28,7 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
 
 export default {
   name: 'Login',
@@ -41,17 +42,87 @@ export default {
 
     const handleSubmit = async () => {
       try {
+        if (!form.username || !form.password) {
+          ElMessage.warning('请输入用户名和密码')
+          return
+        }
+
+        // Log form submission
+        console.log('%c[Request] Form Submission', 'color: #4CAF50; font-weight: bold')
+        console.log('Form state:', { 
+          mode: isLogin.value ? 'login' : 'register',
+          username: form.username,
+          password: '****'
+        })
+
+        // Use relative path for API endpoints
         const url = isLogin.value ? '/api/auth/login' : '/api/auth/register'
-        const response = await axios.post(url, form)
+        console.log('%c[Request] Endpoint', 'color: #2196F3; font-weight: bold', url)
+
+        // Log request configuration
+        const config = {
+          method: 'POST',
+          url: url,
+          data: {
+            username: form.username,
+            password: form.password
+          },
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          withCredentials: false
+        }
+        console.log('%c[Request] Configuration', 'color: #2196F3; font-weight: bold', {
+          ...config,
+          data: { ...config.data, password: '****' }
+        })
+
+        // Make request
+        console.log('%c[Request] Sending...', 'color: #FFC107; font-weight: bold')
+        const response = await axios(config)
+        
+        // Log successful response
+        console.log('%c[Response] Success', 'color: #4CAF50; font-weight: bold', {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+          data: response.data
+        })
         
         if (isLogin.value) {
           localStorage.setItem('token', response.data.token)
+          console.log('%c[Auth] Token stored', 'color: #9C27B0; font-weight: bold')
+          ElMessage.success('登录成功')
           router.push('/dashboard')
         } else {
           isLogin.value = true
+          form.password = ''  // Clear password after registration
+          ElMessage.success('注册成功，请登录')
         }
       } catch (error) {
-        console.error('Error:', error)
+        // Log error details
+        console.log('%c[Error] Request Failed', 'color: #f44336; font-weight: bold')
+        console.error('Error details:', {
+          name: error.name,
+          message: error.message,
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          headers: error.response?.headers,
+          data: error.response?.data,
+          config: {
+            ...error.config,
+            data: error.config?.data ? JSON.parse(error.config.data) : undefined
+          }
+        })
+        
+        if (error.response?.status === 403) {
+          console.error('%c[Error] CORS Issue Detected', 'color: #f44336; font-weight: bold')
+          ElMessage.error('请求被拒绝，可能是CORS问题')
+        } else {
+          ElMessage.error(error.response?.data?.message || '操作失败，请稍后重试')
+        }
       }
     }
 

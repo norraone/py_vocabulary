@@ -1,6 +1,11 @@
 import sqlite3
 from datetime import datetime
 from contextlib import contextmanager
+import logging
+import hashlib
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self, db_path='vocabulary.db'):
@@ -138,13 +143,23 @@ class Database:
 
     def update_user_score(self, user_id, score_change):
         """更新用户分数"""
+        # Ensure user_id and score_change are valid
+        if not isinstance(user_id, int):
+            raise ValueError(f"Invalid user_id: {user_id}. Must be an integer.")
+        
+        if not isinstance(score_change, (int, float)):
+            raise ValueError(f"Invalid score_change: {score_change}. Must be a number.")
+        
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 'UPDATE users SET total_score = total_score + ? WHERE id = ?',
-                (score_change, user_id)
+                (int(score_change), user_id)
             )
             conn.commit()
+            
+            # Optional: Log score change
+            logger.info(f"User {user_id} score updated by {score_change}")
 
     def get_user_score(self, user_id):
         """获取用户总分"""
@@ -163,3 +178,50 @@ class Database:
                 (user_id, word_id, is_correct, datetime.now().date())
             )
             conn.commit()
+
+    def get_word_details(self, word_id):
+        """获取特定单词的详细信息"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT word, part_of_speech, meaning FROM words WHERE id = ?', (word_id,))
+            result = cursor.fetchone()
+            
+            if result:
+                return {
+                    'word': result[0],
+                    'part_of_speech': result[1],
+                    'meaning': result[2]
+                }
+            return None
+
+    def get_user_by_id(self, user_id):
+        """
+        根据用户ID获取用户信息
+        
+        :param user_id: 用户ID
+        :return: 用户信息字典，如果未找到则返回None
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    'SELECT id, username FROM users WHERE id = ?', 
+                    (user_id,)
+                )
+                result = cursor.fetchone()
+                
+                if result:
+                    return {
+                        'id': result[0],
+                        'username': result[1]
+                    }
+                
+                logger.warning(f"No user found with ID: {user_id}")
+                return None
+        
+        except sqlite3.Error as e:
+            logger.error(f"Database error when retrieving user by ID {user_id}: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error when retrieving user by ID {user_id}: {str(e)}")
+            return None

@@ -28,6 +28,7 @@
 <script>
 import { ref, computed } from 'vue'
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
 
 export default {
   name: 'Learning',
@@ -50,40 +51,148 @@ export default {
     const answer = ref('')
     
     const currentWord = computed(() => {
-      return currentIndex.value < props.words.length ? props.words[currentIndex.value] : null
+      console.log('Current Index:', currentIndex.value)
+      console.log('Total Words:', props.words.length)
+      console.log('Words:', props.words)
+      
+      // Ensure we don't go out of bounds
+      if (currentIndex.value >= 0 && currentIndex.value < props.words.length) {
+        return props.words[currentIndex.value]
+      }
+      return null
     })
     
     const checkAnswer = async () => {
-      if (!currentWord.value) return
-      
+      // Validate input before submission
+      if (!currentWord.value) {
+        ElMessage.warning('没有可学习的单词')
+        return
+      }
+
+      // Trim and validate answer
+      const trimmedAnswer = answer.value.trim()
+      if (!trimmedAnswer) {
+        ElMessage.warning('请输入答案')
+        return
+      }
+
+      // Determine correctness based on learning mode
       const isCorrect = props.mode === 'ch2en'
-        ? answer.value.toLowerCase() === currentWord.value.word.toLowerCase()
-        : answer.value === currentWord.value.meaning
-      
+        ? trimmedAnswer.toLowerCase() === currentWord.value.word.toLowerCase()
+        : trimmedAnswer === currentWord.value.meaning
+
+      // Prepare submission data
+      const submissionData = {
+        word_id: currentWord.value.id,
+        is_correct: isCorrect
+      }
+
       try {
+        // Retrieve and validate token
         const token = localStorage.getItem('token')
-        await axios.post('/api/learning', {
-          word_id: currentWord.value.id,
-          is_correct: isCorrect
-        }, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        
-        if (isCorrect) {
-          alert('回答正确！+10分')
-        } else {
-          alert(`回答错误！-10分\n正确答案是：${props.mode === 'ch2en' ? currentWord.value.word : currentWord.value.meaning}`)
+        if (!token) {
+          ElMessage.error('登录凭证已过期，请重新登录')
+          return
         }
-        
+
+        // Detailed axios configuration
+        const response = await axios.post('/api/learn', submissionData, {
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000  // 10 second timeout
+        })
+
+        // Comprehensive logging
+        console.group('Learning Submission')
+        console.log('Submission Data:', submissionData)
+        console.log('Response:', response.data)
+        console.log('Current Word:', currentWord.value)
+        console.log('Current Index:', currentIndex.value)
+        console.log('Total Words:', props.words.length)
+        console.log('Answer:', trimmedAnswer)
+        console.log('Is Correct:', isCorrect)
+        console.groupEnd()
+
+        // Handle response
+        if (response.data.is_correct) {
+          ElMessage.success({
+            message: `回答正确！+${response.data.score_change}分`,
+            duration: 2000
+          })
+        } else {
+          ElMessage.error({
+            message: `回答错误！-${Math.abs(response.data.score_change)}分\n正确答案是：${
+              props.mode === 'ch2en' 
+                ? response.data.correct_word.word 
+                : response.data.correct_word.meaning
+            }`,
+            duration: 3000
+          })
+        }
+
+        // Reset answer and move to next word
         answer.value = ''
-        currentIndex.value++
         
-        if (currentIndex.value >= props.words.length) {
-          alert('本轮学习完成！')
+        // Safely increment index
+        if (currentIndex.value < props.words.length - 1) {
+          currentIndex.value++
+        } else {
+          ElMessage.success('本轮学习完成！')
           emit('finish')
         }
       } catch (error) {
-        console.error('Error submitting answer:', error)
+        // Comprehensive error handling
+        console.group('Submission Error')
+        console.error('Full Error:', error)
+        
+        // Network or request setup error
+        if (!error.response) {
+          console.error('Network Error:', error.message)
+          ElMessage.error({
+            message: error.message.includes('timeout') 
+              ? '请求超时，请检查网络连接' 
+              : '网络错误，无法连接到服务器',
+            duration: 3000
+          })
+          return
+        }
+
+        // Server responded with an error
+        const errorResponse = error.response
+        console.log('Error Response:', {
+          status: errorResponse.status,
+          data: errorResponse.data
+        })
+
+        // Specific error handling
+        let errorMessage = '提交失败，请重试'
+        switch (errorResponse.status) {
+          case 400:
+            errorMessage = '无效的请求参数'
+            break
+          case 401:
+            errorMessage = '认证失败，请重新登录'
+            break
+          case 403:
+            errorMessage = '没有权限执行此操作'
+            break
+          case 404:
+            errorMessage = '资源未找到'
+            break
+          case 500:
+            errorMessage = '服务器内部错误'
+            break
+        }
+
+        // Display error message
+        ElMessage.error({
+          message: errorMessage,
+          duration: 3000
+        })
+
+        console.groupEnd()
       }
     }
     

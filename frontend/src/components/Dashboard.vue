@@ -7,6 +7,7 @@
           <div class="user-info">
             <span>得分: {{ score }}</span>
             <el-button @click="logout">退出</el-button>
+            <el-button @click="resetProgress">重置进度</el-button>
           </div>
         </div>
       </el-header>
@@ -27,6 +28,9 @@
                 <el-menu-item @click="reviewWrongWords">
                   <span>错题复习</span>
                 </el-menu-item>
+                <el-menu-item @click="showOverviewPanel">
+                  <span>学习总览</span>
+                </el-menu-item>
               </el-menu>
             </el-card>
           </el-col>
@@ -40,6 +44,15 @@
                      :words="learningWords"
                      :mode="learningMode"
                      @finish="finishLearning" />
+            
+            <!-- 学习总览 -->
+            <overview-panel 
+              v-if="currentView === 'overview'"
+              :total-words="words.length"
+              :score="score"
+              :wrong-words-count="wrongWordsCount"
+              :learning-stats="learningStats"
+            />
           </el-col>
         </el-row>
       </el-main>
@@ -48,17 +61,20 @@
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
+import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import WordList from './WordList.vue'
 import Learning from './Learning.vue'
+import OverviewPanel from './OverviewPanel.vue'
 
 export default {
   name: 'Dashboard',
   components: {
     WordList,
-    Learning
+    Learning,
+    OverviewPanel
   },
   
   setup() {
@@ -68,6 +84,12 @@ export default {
     const learningWords = ref([])
     const learningMode = ref('')
     const score = ref(0)
+    const wrongWordsCount = ref(0)
+    const learningStats = ref({
+      totalLearned: 0,
+      correctRate: 0,
+      lastLearningDate: null
+    })
 
     const fetchWords = async () => {
       try {
@@ -84,12 +106,122 @@ export default {
     const fetchScore = async () => {
       try {
         const token = localStorage.getItem('token')
+        if (!token) {
+          ElMessage.error('登录凭证已过期，请重新登录')
+          return
+        }
+
         const response = await axios.get('/api/score', {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 5000  // 5-second timeout
         })
-        score.value = response.data.score
+
+        console.log('Score Response:', response.data)
+
+        if (response.data && response.data.score !== undefined) {
+          score.value = response.data.score
+        } else {
+          console.warn('Unexpected score response:', response.data)
+          ElMessage.warning('获取分数时出现异常')
+        }
       } catch (error) {
         console.error('Error fetching score:', error)
+        
+        if (error.response) {
+          const errorData = error.response.data
+          ElMessage.error({
+            message: errorData.message || '获取分数失败',
+            duration: 3000
+          })
+        } else if (error.request) {
+          ElMessage.error({
+            message: '网络错误，无法获取分数',
+            duration: 3000
+          })
+        } else {
+          ElMessage.error({
+            message: '请求发送失败',
+            duration: 3000
+          })
+        }
+      }
+    }
+
+    const fetchWrongWords = async () => {
+      try {
+        const token = localStorage.getItem('token')
+        const response = await axios.get('/api/wrong-words', {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        wrongWordsCount.value = response.data.length
+      } catch (error) {
+        console.error('Error fetching wrong words:', error)
+      }
+    }
+
+    const fetchLearningStats = async () => {
+      try {
+        const token = localStorage.getItem('token')
+        const response = await axios.get('/api/learning-stats', {
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 5000  // 5秒超时
+        })
+        
+        learningStats.value = response.data
+        
+        // 如果没有数据，显示默认值
+        if (!learningStats.value.totalLearned) {
+          console.warn('No learning stats available')
+          learningStats.value = {
+            totalLearned: 0,
+            correctRate: 0,
+            lastLearningDate: null
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching learning stats:', error)
+        
+        // 详细的错误处理
+        if (error.response) {
+          // 服务器返回错误
+          const errorData = error.response.data
+          console.error('Server error details:', errorData)
+          
+          ElMessage.error({
+            message: errorData.message || '获取学习统计失败',
+            description: errorData.error_type 
+              ? `错误类型：${errorData.error_type}\n详细信息：${errorData.error}`
+              : '',
+            duration: 5000
+          })
+        } else if (error.request) {
+          // 网络错误或请求未发送
+          ElMessage.error({
+            message: '网络错误，无法获取学习统计',
+            description: '请检查您的网络连接并重试',
+            duration: 3000
+          })
+        } else {
+          // 其他未知错误
+          ElMessage.error({
+            message: '未知错误，获取学习统计失败',
+            description: error.message,
+            duration: 3000
+          })
+        }
+        
+        // 设置默认值
+        learningStats.value = {
+          totalLearned: 0,
+          correctRate: 0,
+          lastLearningDate: null
+        }
       }
     }
 
@@ -117,6 +249,12 @@ export default {
       }
     }
 
+    const showOverviewPanel = () => {
+      currentView.value = 'overview'
+      fetchWrongWords()
+      fetchLearningStats()
+    }
+
     const finishLearning = () => {
       currentView.value = 'wordList'
       fetchScore()
@@ -125,6 +263,88 @@ export default {
     const logout = () => {
       localStorage.removeItem('token')
       router.push('/login')
+    }
+
+    const resetProgress = async () => {
+      try {
+        // 显示确认对话框
+        const confirmReset = await ElMessageBox.confirm(
+          '确定要重置所有学习进度吗？这将清除您的所有学习记录和分数。', 
+          '重置确认', 
+          {
+            confirmButtonText: '确定重置',
+            cancelButtonText: '取消',
+            type: 'warning'
+          }
+        )
+        
+        if (confirmReset) {
+          const token = localStorage.getItem('token')
+          const response = await axios.post('/api/reset', {}, {
+            headers: { 
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 5000  // 5秒超时
+          })
+          
+          // 重置本地状态
+          score.value = 0
+          words.value = []
+          learningWords.value = []
+          wrongWordsCount.value = 0
+          learningStats.value = {
+            totalLearned: 0,
+            correctRate: 0,
+            lastLearningDate: null
+          }
+          
+          // 重新获取单词列表和统计信息
+          await Promise.all([
+            fetchWords(),
+            fetchWrongWords(),
+            fetchLearningStats()
+          ])
+          
+          // 显示成功消息和详细信息
+          ElMessage.success({
+            message: response.data.message,
+            description: response.data.details 
+              ? `单词进度重置：${response.data.details.word_progress_reset} 行\n用户分数重置：${response.data.details.user_score_reset} 行`
+              : '',
+            duration: 3000
+          })
+        }
+      } catch (error) {
+        console.error('Error resetting progress:', error)
+        
+        // 更详细的错误处理
+        if (error.response) {
+          // 服务器返回错误
+          const errorData = error.response.data
+          ElMessage.error({
+            message: errorData.message || '重置失败',
+            description: errorData.error_type 
+              ? `错误类型：${errorData.error_type}\n详细信息：${errorData.error}`
+              : '',
+            duration: 5000
+          })
+        } else if (error.request) {
+          // 网络错误或请求未发送
+          ElMessage.error({
+            message: '网络错误，无法重置进度',
+            description: '请检查您的网络连接并重试',
+            duration: 3000
+          })
+        } else {
+          // 其他未知错误
+          ElMessage.error({
+            message: '未知错误，重置失败',
+            description: error.message,
+            duration: 3000
+          })
+        }
+      }
     }
 
     onMounted(() => {
@@ -138,10 +358,14 @@ export default {
       learningWords,
       learningMode,
       score,
+      wrongWordsCount,
+      learningStats,
       startLearning,
       reviewWrongWords,
+      showOverviewPanel,
       finishLearning,
-      logout
+      logout,
+      resetProgress
     }
   }
 }
@@ -149,101 +373,24 @@ export default {
 
 <style scoped>
 .dashboard {
-  min-height: 100vh;
-}
-
-.el-header {
-  background-color: var(--surface);
-  box-shadow: var(--elevation-1);
-  position: fixed;
-  width: 100%;
-  z-index: 1000;
-  padding: 0;
+  height: 100vh;
+  background-color: #f5f5f5;
 }
 
 .header-content {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 0 20px;
-  height: 100%;
   display: flex;
-  align-items: center;
   justify-content: space-between;
-}
-
-.header-content h2 {
-  margin: 0;
-  color: var(--primary-color);
-  font-weight: 500;
+  align-items: center;
+  padding: 0 20px;
 }
 
 .user-info {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 15px;
 }
 
-.user-info span {
-  font-size: 14px;
-  color: var(--on-surface);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.el-main {
-  padding-top: 84px;
-  background-color: #f5f5f5;
-  min-height: calc(100vh - 60px);
-}
-
-.el-row {
-  max-width: 1400px;
-  margin: 0 auto !important;
-}
-
-.menu-card .el-card__header {
-  padding: 16px;
-  border-bottom: none;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  font-size: 16px;
-  font-weight: 500;
-  color: var(--primary-color);
-}
-
-.el-menu-item {
-  margin: 4px 0;
-}
-
-.el-menu-item span {
-  font-size: 14px;
-}
-
-.content-card {
+.menu-card {
   margin-bottom: 20px;
-  border-radius: 8px;
-  box-shadow: var(--elevation-1);
-}
-
-@media (max-width: 768px) {
-  .el-header {
-    padding: 0 16px;
-  }
-  
-  .header-content {
-    padding: 0;
-  }
-  
-  .user-info {
-    gap: 16px;
-  }
-  
-  .el-main {
-    padding: 76px 16px 16px;
-  }
 }
 </style>

@@ -15,7 +15,7 @@
       <el-main>
         <el-row :gutter="20">
           <el-col :span="6">
-            <el-card>
+            <el-card class="menu-card">
               <template #header>
                 <div class="card-header">
                   <span>功能菜单</span>
@@ -156,29 +156,101 @@ export default {
 
 <style scoped>
 .dashboard {
-  height: 100vh;
+  min-height: 100vh;
+}
+
+.el-header {
+  background-color: var(--surface);
+  box-shadow: var(--elevation-1);
+  position: fixed;
+  width: 100%;
+  z-index: 1000;
+  padding: 0;
 }
 
 .header-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 20px;
+  height: 100%;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+}
+
+.header-content h2 {
+  margin: 0;
+  color: var(--primary-color);
+  font-weight: 500;
 }
 
 .user-info {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 24px;
 }
 
-.el-header {
-  background-color: #fff;
-  border-bottom: 1px solid #dcdfe6;
-  padding: 0 20px;
+.user-info span {
+  font-size: 14px;
+  color: var(--on-surface);
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .el-main {
-  background-color: #f5f7fa;
-  padding: 20px;
+  padding-top: 84px;
+  background-color: #f5f5f5;
+  min-height: calc(100vh - 60px);
+}
+
+.el-row {
+  max-width: 1400px;
+  margin: 0 auto !important;
+}
+
+.menu-card .el-card__header {
+  padding: 16px;
+  border-bottom: none;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--primary-color);
+}
+
+.el-menu-item {
+  margin: 4px 0;
+}
+
+.el-menu-item span {
+  font-size: 14px;
+}
+
+.content-card {
+  margin-bottom: 20px;
+  border-radius: 8px;
+  box-shadow: var(--elevation-1);
+}
+
+@media (max-width: 768px) {
+  .el-header {
+    padding: 0 16px;
+  }
+  
+  .header-content {
+    padding: 0;
+  }
+  
+  .user-info {
+    gap: 16px;
+  }
+  
+  .el-main {
+    padding: 76px 16px 16px;
+  }
 }
 </style>

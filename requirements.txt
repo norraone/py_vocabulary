@@ -1,0 +1,6 @@
+PyQt6
+tkcalendar
+flask
+flask-cors
+flask-restful
+PyJWT

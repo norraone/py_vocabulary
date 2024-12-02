@@ -1,244 +1,236 @@
 <template>
-  <el-card>
-    <template #header>
-      <div class="card-header">
-        <span>单词学习</span>
-        <div class="header-right">
-          <span>进度: {{ currentIndex + 1 }}/{{ words.length }}</span>
-          <el-button type="success" size="small" @click="saveProgress" :disabled="!currentWord">
-            保存进度
-          </el-button>
+  <div class="learning-container">
+    <el-card class="word-card" v-loading="loading">
+      <template #header>
+        <div class="card-header">
+          <span>单词背诵</span>
+          <div class="header-right">
+            <el-tag type="info" size="small">
+              已学: {{ currentIndex + 1 }}/{{ words.length }}
+            </el-tag>
+          </div>
         </div>
-      </div>
-    </template>
-    
-    <div class="learning-content" v-if="currentWord">
-      <div class="word-display">
-        <h2>{{ mode === 'ch2en' ? currentWord.meaning : currentWord.word }}</h2>
-      </div>
-      
-      <el-input
-        v-model="answer"
-        :placeholder="mode === 'ch2en' ? '请输入英文单词' : '请输入中文释义'"
-        @keyup.enter="checkAnswer"
-      ></el-input>
-      
-      <div class="button-group">
-        <el-button type="primary" @click="checkAnswer">提交</el-button>
-      </div>
-    </div>
+      </template>
 
-    <div v-else-if="words.length > 0" class="resume-section">
-      <el-button type="primary" @click="resumeProgress" v-if="hasSavedProgress">
-        继续上次学习
-      </el-button>
-    </div>
-  </el-card>
+      <template v-if="currentWord">
+        <div class="word-content" :class="{ 'show-meaning': showMeaning }">
+          <div class="word-front">
+            <h2>{{ currentWord.word }}</h2>
+            <p class="part-of-speech">{{ currentWord.part_of_speech }}</p>
+          </div>
+          <div class="word-back">
+            <h3>{{ currentWord.meaning }}</h3>
+          </div>
+        </div>
+
+        <div class="button-group">
+          <el-button 
+            type="primary" 
+            @click="toggleMeaning" 
+            :icon="showMeaning ? 'Hide' : 'View'"
+          >
+            {{ showMeaning ? '隐藏释义' : '查看释义' }}
+          </el-button>
+          
+          <template v-if="showMeaning">
+            <el-button 
+              type="success" 
+              @click="markAsKnown"
+              :disabled="isSubmitting"
+            >
+              认识
+            </el-button>
+            <el-button 
+              type="danger" 
+              @click="markAsUnknown"
+              :disabled="isSubmitting"
+            >
+              不认识
+            </el-button>
+          </template>
+        </div>
+
+        <div class="stats-info" v-if="currentWord">
+          <el-tag type="success" size="small">正确: {{ currentWord.correct_times }}</el-tag>
+          <el-tag type="danger" size="small">错误: {{ currentWord.wrong_times }}</el-tag>
+        </div>
+      </template>
+
+      <template v-else>
+        <el-empty description="本组单词已学习完成">
+          <el-button type="primary" @click="loadNewWords">
+            加载新单词
+          </el-button>
+        </el-empty>
+      </template>
+    </el-card>
+  </div>
 </template>
 
-<script>
-import { ref, computed, onMounted } from 'vue'
+<script setup>
+import { ref, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
-export default {
-  name: 'Learning',
-  props: {
-    words: {
-      type: Array,
-      required: true
-    },
-    mode: {
-      type: String,
-      required: true,
-      validator: value => ['ch2en', 'en2ch'].includes(value)
-    }
-  },
-  
-  emits: ['finish'],
-  
-  setup(props, { emit }) {
-    const currentIndex = ref(0)
-    const answer = ref('')
-    const hasSavedProgress = ref(false)
-    
-    // Get saved progress key based on mode
-    const getSaveKey = () => `learning_progress_${props.mode}`
-    
-    // Check for saved progress on mount
-    onMounted(() => {
-      const savedProgress = localStorage.getItem(getSaveKey())
-      console.log('Checking saved progress on mount:', savedProgress)
-      if (savedProgress) {
-        const { index, timestamp } = JSON.parse(savedProgress)
-        console.log('Checking saved progress on mount:', index, timestamp)
-        // Only use saved progress if it's less than 24 hours old
-        if (Date.now() - timestamp < 24 * 60 * 60 * 1000) {
-          hasSavedProgress.value = true
-          console.log('hasSavedProgress set to true')
-        } else {
-          // Clear old saved progress
-          localStorage.removeItem(getSaveKey())
-          console.log('Old saved progress removed')
-        }
-      }
+const loading = ref(false)
+const isSubmitting = ref(false)
+const words = ref([])
+const currentIndex = ref(0)
+const showMeaning = ref(false)
+
+const currentWord = computed(() => {
+  return currentIndex.value < words.value.length ? words.value[currentIndex.value] : null
+})
+
+const loadNewWords = async () => {
+  try {
+    loading.value = true
+    const token = localStorage.getItem('token')
+    const response = await axios.get('/api/random-words', {
+      headers: { Authorization: `Bearer ${token}` }
     })
-    
-    const currentWord = computed(() => {
-      // Ensure we don't go out of bounds
-      if (currentIndex.value >= 0 && currentIndex.value < props.words.length) {
-        return props.words[currentIndex.value]
-      }
-      return null
-    })
-    
-    const saveProgress = () => {
-      if (currentWord.value) {
-        const progress = {
-          index: currentIndex.value,
-          timestamp: Date.now()
-        }
-        console.log('Saving progress:', progress)
-        localStorage.setItem(getSaveKey(), JSON.stringify(progress))
-        ElMessage.success('进度已保存')
-      } else {
-        console.warn('No current word to save progress for.')
-      }
-    }
-    
-    const resumeProgress = () => {
-      const savedProgress = localStorage.getItem(getSaveKey())
-      console.log('Attempting to resume progress:', savedProgress)
-      if (savedProgress) {
-        const { index, timestamp } = JSON.parse(savedProgress)
-        console.log('Saved index:', index, 'Timestamp:', timestamp)
-        if (index >= 0 && index < props.words.length && Date.now() - timestamp < 24 * 60 * 60 * 1000) {
-          currentIndex.value = index
-          hasSavedProgress.value = false
-          console.log('Resumed progress, hasSavedProgress set to false')
-          ElMessage.success('已恢复上次学习进度')
-        } else {
-          console.warn('Saved progress is too old or invalid.')
-          localStorage.removeItem(getSaveKey())
-        }
-      } else {
-        console.warn('No saved progress found.')
-      }
-    }
-    
-    const checkAnswer = async () => {
-      // Validate input before submission
-      if (!currentWord.value) {
-        ElMessage.warning('没有可学习的单词')
-        return
-      }
-
-      // Trim and validate answer
-      const trimmedAnswer = answer.value.trim()
-      if (!trimmedAnswer) {
-        ElMessage.warning('请输入答案')
-        return
-      }
-
-      // Determine correctness based on learning mode
-      const isCorrect = props.mode === 'ch2en'
-        ? trimmedAnswer.toLowerCase() === currentWord.value.word.toLowerCase()
-        : trimmedAnswer === currentWord.value.meaning
-
-      // Prepare submission data
-      const submissionData = {
-        word_id: currentWord.value.id,
-        is_correct: isCorrect
-      }
-
-      try {
-        // Retrieve and validate token
-        const token = localStorage.getItem('token')
-        if (!token) {
-          ElMessage.error('登录凭证已过期，请重新登录')
-          return
-        }
-
-        // Submit answer
-        const response = await axios.post('/api/learn', submissionData, {
-          headers: { 
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        })
-
-        // Show feedback
-        if (isCorrect) {
-          ElMessage.success('回答正确！')
-        } else {
-          ElMessage.error(`回答错误。正确答案是: ${props.mode === 'ch2en' ? currentWord.value.word : currentWord.value.meaning}`)
-        }
-
-        // Clear input and move to next word
-        answer.value = ''
-        currentIndex.value++
-
-        // Check if we've finished all words
-        if (currentIndex.value >= props.words.length) {
-          emit('finish')
-          ElMessage.success('恭喜！你已完成所有单词的学习')
-          // Clear saved progress when finished
-          localStorage.removeItem(getSaveKey())
-        }
-
-      } catch (error) {
-        console.error('Error submitting answer:', error)
-        ElMessage.error('提交答案时出错，请重试')
-      }
-    }
-
-    return {
-      currentIndex,
-      currentWord,
-      answer,
-      checkAnswer,
-      saveProgress,
-      resumeProgress,
-      hasSavedProgress
-    }
+    words.value = response.data
+    currentIndex.value = 0
+    showMeaning.value = false
+  } catch (error) {
+    console.error('加载单词失败:', error)
+    ElMessage.error(error.response?.data?.message || '加载单词失败')
+  } finally {
+    loading.value = false
   }
 }
+
+const toggleMeaning = () => {
+  showMeaning.value = !showMeaning.value
+}
+
+const submitAnswer = async (isCorrect) => {
+  if (!currentWord.value || isSubmitting.value) return
+
+  try {
+    isSubmitting.value = true
+    const token = localStorage.getItem('token')
+    await axios.post('/api/learn', {
+      word_id: currentWord.value.id,
+      is_correct: isCorrect
+    }, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+
+    // 更新本地统计数据
+    if (isCorrect) {
+      currentWord.value.correct_times++
+    } else {
+      currentWord.value.wrong_times++
+    }
+
+    // 延迟后进入下一个单词
+    setTimeout(() => {
+      currentIndex.value++
+      showMeaning.value = false
+      
+      // 如果已经学完所有单词，显示完成消息
+      if (currentIndex.value >= words.value.length) {
+        ElMessage.success('本组单词学习完成！')
+      }
+    }, 500)
+
+  } catch (error) {
+    console.error('提交答案失败:', error)
+    ElMessage.error(error.response?.data?.message || '提交答案失败')
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
+const markAsKnown = () => submitAnswer(true)
+const markAsUnknown = () => submitAnswer(false)
+
+// 初始加载单词
+loadNewWords()
 </script>
 
 <style scoped>
+.learning-container {
+  max-width: 800px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+.word-card {
+  background-color: #f9f9f9;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 1.5rem;
+  font-weight: bold;
 }
 
 .header-right {
   display: flex;
-  align-items: center;
   gap: 1rem;
+  align-items: center;
 }
 
-.learning-content {
+.word-content {
+  text-align: center;
+  padding: 2rem;
+  min-height: 200px;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  padding: 1rem;
+  justify-content: center;
+  align-items: center;
 }
 
-.word-display {
-  text-align: center;
+.word-front h2 {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+  color: #2c3e50;
+}
+
+.part-of-speech {
+  font-size: 1.2rem;
+  color: #666;
+  margin-bottom: 1rem;
+}
+
+.word-back {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.3s ease;
+}
+
+.show-meaning .word-back {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.word-back h3 {
+  font-size: 1.8rem;
+  color: #42b983;
+  margin-top: 1rem;
 }
 
 .button-group {
   display: flex;
   justify-content: center;
   gap: 1rem;
+  margin: 1.5rem 0;
+}
+
+.stats-info {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
   margin-top: 1rem;
 }
 
-.resume-section {
-  display: flex;
-  justify-content: center;
+.el-empty {
   padding: 2rem;
 }
 </style>

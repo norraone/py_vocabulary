@@ -799,6 +799,154 @@ class LearningTrendResource(Resource):
                 'error_type': type(e).__name__
             }, 500
 
+class MultipleChoiceResource(Resource):
+    @token_required
+    def get(self, current_user):
+        """获取随机多选题"""
+        try:
+            # 使用数据库连接获取随机单词
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # 随机选择一个单词作为正确答案
+                cursor.execute('''
+                    SELECT id, word, meaning 
+                    FROM words 
+                    ORDER BY RANDOM() 
+                    LIMIT 1
+                ''')
+                correct_word = cursor.fetchone()
+                
+                if not correct_word:
+                    return {
+                        'message': '词库中没有单词',
+                        'error_type': 'EmptyWordBank'
+                    }, 404
+                
+                # 随机选择3个不同的单词作为干扰选项
+                cursor.execute('''
+                    SELECT meaning 
+                    FROM words 
+                    WHERE id != ? 
+                    ORDER BY RANDOM() 
+                    LIMIT 3
+                ''', (correct_word[0],))
+                
+                wrong_words = cursor.fetchall()
+                
+                # 如果没有足够的干扰选项，返回错误
+                if len(wrong_words) < 3:
+                    return {
+                        'message': '词库中单词数量不足',
+                        'error_type': 'InsufficientWords'
+                    }, 400
+                
+                # 构建选项列表（包含正确答案和干扰选项）
+                options = [word[0] for word in wrong_words]
+                options.append(correct_word[2])
+                
+                # 随机打乱选项顺序
+                import random
+                random.shuffle(options)
+                
+                return {
+                    'id': correct_word[0],     # 添加单词ID
+                    'question': correct_word[1],  # 英文单词
+                    'options': options,           # 打乱后的中文选项
+                    'correct_answer': correct_word[2]  # 正确的中文含义
+                }, 200
+                
+        except Exception as e:
+            logger.error(f"Error generating multiple choice question: {str(e)}")
+            return {
+                'message': '生成题目失败',
+                'error': str(e),
+                'error_type': type(e).__name__
+            }, 500
+
+class RandomWordResource(Resource):
+    @token_required
+    def get(self, current_user):
+        """获取随机单词进行背诵"""
+        try:
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # 获取用户已经掌握的单词（正确次数大于错误次数的单词）
+                cursor.execute('''
+                    SELECT word_id
+                    FROM learning_records
+                    WHERE user_id = ?
+                    GROUP BY word_id
+                    HAVING SUM(CASE WHEN is_correct = 1 THEN 1 ELSE -1 END) > 0
+                ''', (current_user,))
+                mastered_words = {row[0] for row in cursor.fetchall()}
+                
+                # 优先选择未掌握的单词，按错误次数降序排序
+                cursor.execute('''
+                    SELECT 
+                        w.id,
+                        w.word,
+                        w.part_of_speech,
+                        w.meaning,
+                        w.correct_times,
+                        w.wrong_times
+                    FROM words w
+                    WHERE w.id NOT IN (
+                        SELECT word_id
+                        FROM learning_records
+                        WHERE user_id = ?
+                        GROUP BY word_id
+                        HAVING SUM(CASE WHEN is_correct = 1 THEN 1 ELSE -1 END) > 0
+                    )
+                    ORDER BY 
+                        w.wrong_times DESC,
+                        RANDOM()
+                    LIMIT 10
+                ''', (current_user,))
+                
+                unmastered_words = cursor.fetchall()
+                
+                # 如果未掌握的单词不足10个，补充一些随机单词
+                if len(unmastered_words) < 10:
+                    remaining_count = 10 - len(unmastered_words)
+                    cursor.execute('''
+                        SELECT 
+                            w.id,
+                            w.word,
+                            w.part_of_speech,
+                            w.meaning,
+                            w.correct_times,
+                            w.wrong_times
+                        FROM words w
+                        WHERE w.id NOT IN ({})
+                        ORDER BY RANDOM()
+                        LIMIT ?
+                    '''.format(','.join('?' * len(unmastered_words)) if unmastered_words else 'SELECT -1'),
+                    tuple(word[0] for word in unmastered_words) + (remaining_count,))
+                    
+                    unmastered_words.extend(cursor.fetchall())
+                
+                # 格式化返回数据
+                words_data = [{
+                    'id': word[0],
+                    'word': word[1],
+                    'part_of_speech': word[2],
+                    'meaning': word[3],
+                    'correct_times': word[4],
+                    'wrong_times': word[5]
+                } for word in unmastered_words]
+                
+                return words_data, 200
+                
+        except Exception as e:
+            logger.error(f"Error fetching random words: {str(e)}")
+            return {
+                'message': '获取单词失败',
+                'error': str(e),
+                'error_type': type(e).__name__
+            }, 500
+
 # 注册API路由
 api.add_resource(AuthResource, '/api/auth/login')
 api.add_resource(RegisterResource, '/api/auth/register')
@@ -809,6 +957,8 @@ api.add_resource(LearningResource, '/api/learn')
 api.add_resource(ResetProgressResource, '/api/reset')
 api.add_resource(LearningStatsResource, '/api/learning-stats')
 api.add_resource(LearningTrendResource, '/api/learning-trend')
+api.add_resource(MultipleChoiceResource, '/api/multiple-choice')
+api.add_resource(RandomWordResource, '/api/random-words')
 
 if __name__ == '__main__':
     logger.info("Starting Flask server on http://127.0.0.1:5000")

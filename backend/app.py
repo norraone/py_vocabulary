@@ -152,10 +152,10 @@ def token_required(f):
         
         if not token:
             logger.warning("No token provided")
-            return jsonify({
+            return {
                 'message': 'Authentication token is missing',
                 'error_type': 'MissingToken'
-            }), 401
+            }, 401
         
         try:
             # 解码 token
@@ -166,45 +166,45 @@ def token_required(f):
             
             if not current_user:
                 logger.error("Invalid token: No user ID found")
-                return jsonify({
+                return {
                     'message': 'Invalid token',
                     'error_type': 'InvalidToken'
-                }), 401
+                }, 401
             
             # 检查用户是否存在
             user = db.get_user_by_id(current_user)
             if not user:
                 logger.warning(f"Token contains non-existent user ID: {current_user}")
-                return jsonify({
+                return {
                     'message': 'User not found',
                     'error_type': 'UserNotFound',
                     'user_id': current_user
-                }), 401
+                }, 401
             
             # 将用户 ID 传递给被装饰的函数
             return f(self, current_user, *args, **kwargs)
         
         except jwt.ExpiredSignatureError:
             logger.warning("Token has expired")
-            return jsonify({
+            return {
                 'message': 'Token has expired',
                 'error_type': 'TokenExpired'
-            }), 401
+            }, 401
         
         except jwt.InvalidTokenError:
             logger.error("Invalid token")
-            return jsonify({
+            return {
                 'message': 'Invalid token',
                 'error_type': 'InvalidToken'
-            }), 401
+            }, 401
         
         except Exception as e:
             logger.error(f"Unexpected authentication error: {str(e)}")
-            return jsonify({
+            return {
                 'message': 'Authentication failed',
                 'error_type': 'UnexpectedError',
                 'error_details': str(e)
-            }), 401
+            }, 401
     
     return decorated
 
@@ -402,6 +402,8 @@ class WrongWordsResource(Resource):
     def get(self, current_user):
         """获取错词本"""
         try:
+            logger.info(f"Retrieving wrong words for user: {current_user}")
+            
             # 使用数据库连接获取错误单词
             with db.get_connection() as conn:
                 cursor = conn.cursor()
@@ -426,6 +428,8 @@ class WrongWordsResource(Resource):
                 
                 wrong_words = cursor.fetchall()
                 
+                logger.info(f"Found {len(wrong_words)} wrong words for user {current_user}")
+                
                 result = [
                     {
                         'id': word[0],
@@ -438,10 +442,15 @@ class WrongWordsResource(Resource):
                     } for word in wrong_words
                 ]
                 
+                # 记录返回的错误单词详情
+                for word in result:
+                    logger.debug(f"Wrong word: {word['word']} - Wrong times: {word['wrong_times']}, Correct times: {word['correct_times']}")
+                
                 return result, 200
         
         except Exception as e:
-            logger.error(f"Error retrieving wrong words: {str(e)}")
+            logger.error(f"Error retrieving wrong words for user {current_user}: {str(e)}")
+            logger.error(traceback.format_exc())  # 打印完整的堆栈跟踪
             return {
                 'message': '获取错误单词失败',
                 'error': str(e),
@@ -947,6 +956,66 @@ class RandomWordResource(Resource):
                 'error_type': type(e).__name__
             }, 500
 
+class ReviewWordsResource(Resource):
+    @token_required
+    def get(self, current_user):
+        """获取需要复习的单词"""
+        try:
+            words = db.get_words_for_review(current_user)
+            return {
+                'message': '获取复习单词成功',
+                'words': words
+            }, 200
+        except Exception as e:
+            logger.error(f"Error getting review words: {str(e)}")
+            return {
+                'message': '获取复习单词失败',
+                'error': str(e)
+            }, 500
+
+    @token_required
+    def post(self, current_user):
+        """提交复习结果"""
+        try:
+            data = request.get_json()
+            if not data:
+                return {'message': '没有提供数据'}, 400
+
+            word_id = data.get('word_id')
+            quality = data.get('quality')
+
+            if not word_id or quality is None:
+                return {'message': '缺少必要参数'}, 400
+
+            if not isinstance(quality, int) or quality < 0 or quality > 5:
+                return {'message': '质量评分必须是0-5之间的整数'}, 400
+
+            # 更新复习进度
+            db.update_word_progress(current_user, word_id, quality)
+            
+            # 更新学习记录
+            is_correct = quality >= 3
+            db.add_learning_record(current_user, word_id, is_correct)
+            
+            # 更新单词统计
+            db.update_word_stats(word_id, is_correct)
+            
+            # 更新用户分数
+            score_change = quality * 2  # 根据质量评分给予相应分数
+            db.update_user_score(current_user, score_change)
+
+            return {
+                'message': '复习记录已更新',
+                'score_change': score_change
+            }, 200
+
+        except Exception as e:
+            logger.error(f"Error submitting review: {str(e)}")
+            return {
+                'message': '提交复习记录失败',
+                'error': str(e)
+            }, 500
+
 # 注册API路由
 api.add_resource(AuthResource, '/api/auth/login')
 api.add_resource(RegisterResource, '/api/auth/register')
@@ -954,12 +1023,12 @@ api.add_resource(WordResource, '/api/words', '/api/words/<int:word_id>')
 api.add_resource(WrongWordsResource, '/api/wrong-words')
 api.add_resource(ScoreResource, '/api/score')
 api.add_resource(LearningResource, '/api/learn')
-api.add_resource(ResetProgressResource, '/api/reset')
+api.add_resource(ResetProgressResource, '/api/reset-progress')
 api.add_resource(LearningStatsResource, '/api/learning-stats')
 api.add_resource(LearningTrendResource, '/api/learning-trend')
 api.add_resource(MultipleChoiceResource, '/api/multiple-choice')
-api.add_resource(RandomWordResource, '/api/random-words')
+api.add_resource(RandomWordResource, '/api/random-word')
+api.add_resource(ReviewWordsResource, '/api/review-words')
 
 if __name__ == '__main__':
-    logger.info("Starting Flask server on http://127.0.0.1:5000")
     app.run(debug=True)

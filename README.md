@@ -28,6 +28,37 @@
    - 连续打卡天数统计
    - 单词掌握程度统计
 
+## 工作流程
+
+```mermaid
+graph TD
+    A[用户] --> B{是否登录?}
+    B -->|否| C[注册/登录]
+    B -->|是| D[主界面]
+    
+    D --> E[单词管理]
+    D --> F[学习模式]
+    D --> G[统计分析]
+    D --> H[每日打卡]
+
+    E --> E1[查看单词列表]
+    E --> E2[添加单词]
+    E --> E3[修改单词]
+    E --> E4[删除单词]
+
+    F --> F1[中译英模式]
+    F --> F2[英译中模式]
+    F --> F3[错题复习]
+
+    G --> G1[学习成绩统计]
+    G --> G2[打卡天数统计]
+    G --> G3[单词掌握度]
+
+    F1 & F2 --> I{回答正确?}
+    I -->|是| J[加分]
+    I -->|否| K[扣分/加入错题本]
+```
+
 ## 技术栈
 
 ### 后端
@@ -99,18 +130,39 @@ py_vocabulary/
 │   ├── app.py          # 后端API服务器
 │   ├── database.py     # 数据库操作类
 │   ├── init_db.py      # 数据库初始化脚本
+│   ├── models.py       # 数据模型
+│   ├── routes.py       # API路由
 │   └── vocabulary.db   # SQLite数据库文件
 ├── frontend/
+│   ├── public/
+│   │   └── index.html  # HTML模板
 │   ├── src/
+│   │   ├── assets/     # 静态资源
 │   │   ├── components/ # Vue组件
 │   │   ├── router/     # 路由配置
+│   │   ├── store/      # Vuex状态管理
+│   │   ├── views/      # 视图组件
 │   │   ├── App.vue     # 根组件
 │   │   └── main.js     # 入口文件
-│   ├── index.html      # HTML模板
 │   ├── package.json    # 前端依赖配置
-│   └── vite.config.js  # Vite配置
+│   ├── vite.config.js  # Vite配置
+│   └── .env            # 环境配置
 └── requirements.txt    # 后端依赖列表
 ```
+DATA STRUCTURE
+Users Table
+id: INTEGER, Primary Key, Auto-increment
+username: TEXT, Unique, Not Null
+password: TEXT, Not Null
+total_score: INTEGER, Default 0
+Words Table
+id: INTEGER, Primary Key, Auto-increment
+word: TEXT, Not Null
+part_of_speech: TEXT
+meaning: TEXT, Not Null
+frequency: INTEGER, Default 0
+correct_times: INTEGER, Default 0
+wrong_times: INTEGER, Default 0
 
 ## 注意事项
 

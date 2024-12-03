@@ -3,7 +3,7 @@
     <el-card class="word-card" v-loading="loading">
       <template #header>
         <div class="card-header">
-          <span>单词背诵</span>
+          <span>{{ mode === 'review' ? '错题复习' : '单词背诵' }}</span>
           <div class="header-right">
             <el-tag type="info" size="small">
               已学: {{ currentIndex + 1 }}/{{ words.length }}
@@ -57,9 +57,9 @@
       </template>
 
       <template v-else>
-        <el-empty description="本组单词已学习完成">
-          <el-button type="primary" @click="loadNewWords">
-            加载新单词
+        <el-empty :description="mode === 'review' ? '错词已全部复习完成' : '本组单词已学习完成'">
+          <el-button type="primary" @click="loadWords">
+            {{ mode === 'review' ? '重新复习' : '加载新单词' }}
           </el-button>
         </el-empty>
       </template>
@@ -68,28 +68,52 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, defineProps, defineEmits } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
+const props = defineProps({
+  words: {
+    type: Array,
+    default: () => []
+  },
+  mode: {
+    type: String,
+    default: 'normal'
+  }
+})
+
+const emit = defineEmits(['finish'])
+
 const loading = ref(false)
 const isSubmitting = ref(false)
-const words = ref([])
+const localWords = ref([])
 const currentIndex = ref(0)
 const showMeaning = ref(false)
 
 const currentWord = computed(() => {
-  return currentIndex.value < words.value.length ? words.value[currentIndex.value] : null
+  return currentIndex.value < localWords.value.length ? localWords.value[currentIndex.value] : null
 })
 
-const loadNewWords = async () => {
+const loadWords = async () => {
   try {
     loading.value = true
     const token = localStorage.getItem('token')
-    const response = await axios.get('/api/random-words', {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    words.value = response.data
+    
+    if (props.mode === 'review') {
+      // 错题复习模式
+      const response = await axios.get('/api/wrong-words', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      localWords.value = response.data
+    } else {
+      // 普通学习模式
+      const response = await axios.get('/api/random-word', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      localWords.value = response.data
+    }
+    
     currentIndex.value = 0
     showMeaning.value = false
   } catch (error) {
@@ -98,6 +122,11 @@ const loadNewWords = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// 如果传入了words，直接使用
+if (props.words.length > 0) {
+  localWords.value = props.words
 }
 
 const toggleMeaning = () => {
@@ -129,9 +158,13 @@ const submitAnswer = async (isCorrect) => {
       currentIndex.value++
       showMeaning.value = false
       
-      // 如果已经学完所有单词，显示完成消息
-      if (currentIndex.value >= words.value.length) {
-        ElMessage.success('本组单词学习完成！')
+      // 如果已经学完所有单词
+      if (currentIndex.value >= localWords.value.length) {
+        const message = props.mode === 'review' 
+          ? '错词复习完成！' 
+          : '本组单词学习完成！'
+        ElMessage.success(message)
+        emit('finish')
       }
     }, 500)
 
@@ -147,7 +180,9 @@ const markAsKnown = () => submitAnswer(true)
 const markAsUnknown = () => submitAnswer(false)
 
 // 初始加载单词
-loadNewWords()
+if (localWords.value.length === 0) {
+  loadWords()
+}
 </script>
 
 <style scoped>

@@ -60,6 +60,15 @@
         <canvas ref="learningChart" height="200"></canvas>
       </div>
     </el-card>
+    
+    <el-card shadow="hover" class="performance-chart">
+      <template #header>
+        <div class="card-header">答题分布</div>
+      </template>
+      <div class="chart-container">
+        <canvas ref="performanceChart" height="200"></canvas>
+      </div>
+    </el-card>
   </el-card>
 </template>
 
@@ -96,6 +105,7 @@ export default {
   
   setup(props) {
     const learningChart = ref(null)
+    const performanceChart = ref(null)
     const learningTrend = ref([])
     
     const formatDate = (dateString) => {
@@ -164,7 +174,8 @@ export default {
     const initChart = () => {
       if (!learningChart.value) return
       
-      const ctx = learningChart.value.getContext('2d')
+      const ctxLearning = learningChart.value.getContext('2d')
+      const ctxPerformance = performanceChart.value.getContext('2d')
       
       // 如果之前有图表实例，销毁它
       if (window.learningChartInstance) {
@@ -173,14 +184,19 @@ export default {
       
       // 如果没有数据，显示空状态
       if (learningTrend.value.length === 0) {
-        ctx.font = '16px Arial'
-        ctx.fillStyle = '#999'
-        ctx.textAlign = 'center'
-        ctx.fillText('暂无学习数据', ctx.canvas.width / 2, ctx.canvas.height / 2)
+        ctxLearning.font = '16px Arial'
+        ctxLearning.fillStyle = '#999'
+        ctxLearning.textAlign = 'center'
+        ctxLearning.fillText('暂无学习数据', ctxLearning.canvas.width / 2, ctxLearning.canvas.height / 2)
+        
+        ctxPerformance.font = '16px Arial'
+        ctxPerformance.fillStyle = '#999'
+        ctxPerformance.textAlign = 'center'
+        ctxPerformance.fillText('暂无学习数据', ctxPerformance.canvas.width / 2, ctxPerformance.canvas.height / 2)
         return
       }
       
-      window.learningChartInstance = new Chart(ctx, {
+      window.learningChartInstance = new Chart(ctxLearning, {
         type: 'line',
         data: {
           labels: learningTrend.value.map(item => item.week),
@@ -219,6 +235,21 @@ export default {
           }
         }
       })
+      
+      new Chart(ctxPerformance, {
+        type: 'pie',
+        data: {
+          labels: ['正确', '错误'],
+          datasets: [{
+            data: [props.learningStats.totalLearned - props.wrongWordsCount, props.wrongWordsCount],
+            backgroundColor: ['#4CAF50', '#FF5252']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false
+        }
+      })
     }
     
     // 添加重置方法
@@ -227,13 +258,13 @@ export default {
         window.learningChartInstance.destroy()
       }
       
-      const ctx = learningChart.value.getContext('2d')
-      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+      const ctxLearning = learningChart.value.getContext('2d')
+      ctxLearning.clearRect(0, 0, ctxLearning.canvas.width, ctxLearning.canvas.height)
       
-      ctx.font = '16px Arial'
-      ctx.fillStyle = '#999'
-      ctx.textAlign = 'center'
-      ctx.fillText('暂无学习数据', ctx.canvas.width / 2, ctx.canvas.height / 2)
+      ctxLearning.font = '16px Arial'
+      ctxLearning.fillStyle = '#999'
+      ctxLearning.textAlign = 'center'
+      ctxLearning.fillText('暂无学习数据', ctxLearning.canvas.width / 2, ctxLearning.canvas.height / 2)
     }
     
     onMounted(() => {
@@ -242,6 +273,7 @@ export default {
     
     return {
       learningChart,
+      performanceChart,
       formatDate,
       resetChart  // 新增重置方法
     }

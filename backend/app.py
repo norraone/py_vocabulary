@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request
 from flask_cors import CORS
 from flask_restful import Api, Resource
 from database import Database
@@ -8,10 +8,11 @@ import traceback
 import json
 import sqlite3
 import functools
-import datetime
+from datetime import datetime
 from sqlalchemy import text
 import os
 import traceback
+from datetime import date
 
 # Configure logging with more detail
 logging.basicConfig(
@@ -135,7 +136,7 @@ def handle_error(error):
         'error_type': type(error).__name__,
         'error_details': str(error),
         'user_message': error_message,
-        'timestamp': datetime.datetime.now().isoformat()
+        'timestamp': datetime.now().isoformat()
     }, 500
 
 def token_required(f):
@@ -231,8 +232,8 @@ class AuthResource(Resource):
             if user_id:
                 token = jwt.encode({
                     'user_id': user_id,
-                    'exp': datetime.datetime.utcnow() + datetime.timedelta(days=1),
-                    'iat': datetime.datetime.utcnow()  # 签发时间
+                    'exp': datetime.utcnow() + datetime.timedelta(days=1),
+                    'iat': datetime.utcnow()  # 签发时间
                 }, app.config['SECRET_KEY'], algorithm='HS256')  # 指定算法
                 logger.info("Login successful for user: %s", username)
                 return {'token': token, 'user_id': user_id}
@@ -280,7 +281,7 @@ class WordResource(Resource):
         try:
             words = db.get_all_words()
             logger.info("Fetched all words for user: %s", current_user)
-            return jsonify([{
+            return [{
                 'id': word[0],
                 'word': word[1],
                 'part_of_speech': word[2],
@@ -288,7 +289,7 @@ class WordResource(Resource):
                 'frequency': word[4],
                 'correct_times': word[5],
                 'wrong_times': word[6]
-            } for word in words])
+            } for word in words]
             
         except Exception as e:
             logger.error("Error during fetching words: %s", str(e), exc_info=True)
@@ -307,10 +308,10 @@ class WordResource(Resource):
             # Validate input data
             if not isinstance(data, dict):
                 logger.error(f"Invalid input data type: {type(data)}")
-                return jsonify({
+                return {
                     'message': '无效的输入数据',
                     'error_details': f'Expected dict, got {type(data)}'
-                }), 400
+                }, 400
 
             # Use the database method directly instead of SQLAlchemy
             with db.get_connection() as conn:
@@ -322,7 +323,7 @@ class WordResource(Resource):
                 
                 if not existing_word:
                     logger.warning(f"Word not found with ID: {word_id}")
-                    return jsonify({'message': 'Word not found'}), 404
+                    return {'message': 'Word not found'}, 404
 
                 # Prepare update query
                 update_fields = []
@@ -332,39 +333,39 @@ class WordResource(Resource):
                 if 'word' in data:
                     if not isinstance(data['word'], str):
                         logger.error(f"Invalid word type: {type(data['word'])}")
-                        return jsonify({
+                        return {
                             'message': '单词格式错误',
                             'error_details': f'Expected str, got {type(data["word"])}'
-                        }), 400
+                        }, 400
                     update_fields.append('word = ?')
                     update_values.append(data['word'])
                 
                 if 'part_of_speech' in data:
                     if not isinstance(data.get('part_of_speech', ''), str):
                         logger.error(f"Invalid part_of_speech type: {type(data['part_of_speech'])}")
-                        return jsonify({
+                        return {
                             'message': '词性格式错误',
                             'error_details': f'Expected str, got {type(data["part_of_speech"])}'
-                        }), 400
+                        }, 400
                     update_fields.append('part_of_speech = ?')
                     update_values.append(data['part_of_speech'])
                 
                 if 'meaning' in data:
                     if not isinstance(data['meaning'], str):
                         logger.error(f"Invalid meaning type: {type(data['meaning'])}")
-                        return jsonify({
+                        return {
                             'message': '释义格式错误',
                             'error_details': f'Expected str, got {type(data["meaning"])}'
-                        }), 400
+                        }, 400
                     update_fields.append('meaning = ?')
                     update_values.append(data['meaning'])
 
                 if not update_fields:
                     logger.warning("No update fields provided")
-                    return jsonify({
+                    return {
                         'message': '没有提供更新字段',
                         'error_details': '至少需要更新一个字段'
-                    }), 400
+                    }, 400
 
                 # Add word_id to the end of values list for WHERE clause
                 update_values.append(word_id)
@@ -378,24 +379,157 @@ class WordResource(Resource):
                 conn.commit()
 
                 logger.info(f"Word {word_id} updated successfully")
-                return jsonify({
+                return {
                     'message': '单词更新成功',
                     'updated_fields': list(data.keys())
-                }), 200
+                }, 200
 
         except sqlite3.Error as e:
             logger.error(f"SQLite error updating word: {str(e)}")
-            return jsonify({
+            return {
                 'message': '数据库操作错误',
                 'error_details': str(e)
-            }), 500
+            }, 500
         except Exception as e:
             logger.error(f"Unexpected error updating word: {str(e)}")
             logger.error(f"Traceback: {traceback.format_exc()}")
-            return jsonify({
+            return {
                 'message': '更新单词失败',
                 'error_details': str(e)
-            }), 500
+            }, 500
+
+    @token_required
+    def post(self, current_user):
+        """
+        添加新单词
+        """
+        try:
+            data = request.get_json()
+            logger.debug(f"Received new word data: {data}")
+            logger.debug(f"Current user: {current_user}")
+
+            # 验证输入数据
+            if not isinstance(data, dict):
+                logger.error(f"Invalid input data type: {type(data)}")
+                return {
+                    'message': '无效的输入数据',
+                    'error_details': f'Expected dict, got {type(data)}'
+                }, 400
+
+            # 必填字段验证
+            required_fields = ['word', 'part_of_speech', 'meaning']
+            for field in required_fields:
+                if field not in data or not data[field]:
+                    logger.error(f"Missing required field: {field}")
+                    return {
+                        'message': f'缺少必填字段：{field}',
+                        'error_details': f'Field {field} is required'
+                    }, 400
+
+            # 字段类型验证
+            if not isinstance(data['word'], str):
+                return {
+                    'message': '单词格式错误',
+                    'error_details': f'Expected str, got {type(data["word"])}'
+                }, 400
+
+            if not isinstance(data['part_of_speech'], str):
+                return {
+                    'message': '词性格式错误',
+                    'error_details': f'Expected str, got {type(data["part_of_speech"])}'
+                }, 400
+
+            if not isinstance(data['meaning'], str):
+                return {
+                    'message': '释义格式错误',
+                    'error_details': f'Expected str, got {type(data["meaning"])}'
+                }, 400
+
+            # 使用数据库方法添加单词
+            result = db.add_word(
+                word=data['word'], 
+                part_of_speech=data['part_of_speech'], 
+                meaning=data['meaning']
+            )
+
+            if result:
+                # 获取最后插入的单词ID
+                with db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('SELECT last_insert_rowid()')
+                    word_id = cursor.fetchone()[0]
+
+                logger.info(f"Word added successfully: {data['word']}")
+                return {
+                    'message': '单词添加成功',
+                    'word': {
+                        'id': word_id,
+                        'word': data['word'],
+                        'part_of_speech': data['part_of_speech'],
+                        'meaning': data['meaning']
+                    }
+                }, 201
+            else:
+                logger.warning(f"Failed to add word: {data['word']}")
+                return {
+                    'message': '单词添加失败',
+                    'error_details': '可能是单词已存在或数据库错误'
+                }, 400
+
+        except sqlite3.Error as e:
+            logger.error(f"SQLite error adding word: {str(e)}")
+            return {
+                'message': '数据库操作错误',
+                'error_details': str(e)
+            }, 500
+        except Exception as e:
+            logger.error(f"Unexpected error adding word: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return {
+                'message': '添加单词失败',
+                'error_details': str(e)
+            }, 500
+
+    @token_required
+    def delete(self, current_user, word_id):
+        """删除指定单词"""
+        try:
+            # 验证单词是否存在
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM words WHERE id = ?', (word_id,))
+                word = cursor.fetchone()
+                
+                if not word:
+                    logger.warning(f"Attempted to delete non-existent word: {word_id}")
+                    return {
+                        'message': '单词不存在',
+                        'error_type': 'WordNotFound'
+                    }, 404
+            
+            # 执行删除
+            result = db.delete_word(word_id)
+            
+            if result:
+                logger.info(f"User {current_user} deleted word {word_id}")
+                return {
+                    'message': '单词删除成功',
+                    'word_id': word_id
+                }, 200
+            else:
+                logger.error(f"Failed to delete word {word_id}")
+                return {
+                    'message': '删除单词失败',
+                    'error_type': 'DeletionFailed'
+                }, 500
+        
+        except Exception as e:
+            logger.error(f"Unexpected error deleting word: {e}")
+            return {
+                'message': '服务器内部错误',
+                'error_type': 'InternalServerError',
+                'details': str(e)
+            }, 500
 
 class WrongWordsResource(Resource):
     @token_required
@@ -483,246 +617,89 @@ class ScoreResource(Resource):
             return {'message': 'Internal server error', 'error': str(e)}, 500
 
 class LearningResource(Resource):
-    def post(self):
+    @token_required
+    def post(self, current_user):
         """提交学习结果"""
         try:
-            # 从请求头获取 token
-            token = None
-            if 'Authorization' in request.headers:
-                auth_header = request.headers['Authorization']
-                if auth_header.startswith('Bearer '):
-                    token = auth_header.split(' ')[1]
-            
-            if not token:
-                logger.warning("No token provided")
-                return {
-                    'message': 'Authentication token is missing',
-                    'error_type': 'MissingToken'
-                }, 401
-            
-            try:
-                # 解码 token
-                data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-                
-                # 获取用户 ID
-                current_user = data.get('user_id')
-                
-                # 确保 current_user 是整数
-                if not isinstance(current_user, int):
-                    try:
-                        current_user = int(current_user)
-                    except (ValueError, TypeError):
-                        logger.error(f"Invalid user ID type: {type(current_user)}")
-                        return {
-                            'message': 'Invalid user ID',
-                            'error_type': 'InvalidUserID',
-                            'current_user_type': str(type(current_user))
-                        }, 401
-                
-                if not current_user:
-                    logger.error("Invalid token: No user ID found")
-                    return {
-                        'message': 'Invalid token',
-                        'error_type': 'InvalidToken'
-                    }, 401
-                
-                # 验证用户是否存在
-                user = db.get_user_by_id(current_user)
-                if not user:
-                    logger.warning(f"Token contains non-existent user ID: {current_user}")
-                    return {
-                        'message': 'User not found',
-                        'error_type': 'UserNotFound',
-                        'user_id': current_user
-                    }, 401
-                
-                # Parse request data
-                request_data = request.get_json()
-                logger.debug(f"Received learning data: {request_data}")
+            data = request.get_json()
+            if not data:
+                return {'message': '没有提供数据'}, 400
 
-                # Validate word_id
-                word_id = request_data.get('word_id')
-                if not word_id:
-                    logger.error("Missing word_id")
-                    return {
-                        'message': 'Missing word_id', 
-                        'error': 'word_id is required',
-                        'error_type': 'MissingWordID'
-                    }, 400
-                
-                # Ensure word_id is an integer
-                try:
-                    word_id = int(word_id)
-                except ValueError:
-                    logger.error(f"Invalid word_id: {word_id}")
-                    return {
-                        'message': 'Invalid word_id', 
-                        'error': 'word_id must be an integer',
-                        'error_type': 'InvalidWordID'
-                    }, 400
+            word_id = data.get('word_id')
+            is_correct = data.get('is_correct')
 
-                # Validate is_correct
-                is_correct = request_data.get('is_correct')
-                if is_correct is None:
-                    logger.error("Missing is_correct")
-                    return {
-                        'message': 'Missing is_correct', 
-                        'error': 'is_correct is required',
-                        'error_type': 'MissingIsCorrect'
-                    }, 400
-                
-                # Validate is_correct is a boolean
-                if not isinstance(is_correct, bool):
-                    logger.error(f"Invalid is_correct: {is_correct}")
-                    return {
-                        'message': 'Invalid is_correct', 
-                        'error': 'is_correct must be a boolean',
-                        'error_type': 'InvalidIsCorrect'
-                    }, 400
+            if not word_id or is_correct is None:
+                return {'message': '缺少必要参数'}, 400
 
-                # Additional database validation
-                with db.get_connection() as conn:
-                    cursor = conn.cursor()
-                    # Check if word exists
-                    cursor.execute('SELECT id FROM words WHERE id = ?', (word_id,))
-                    if not cursor.fetchone():
-                        logger.error(f"Word not found: {word_id}")
-                        return {
-                            'message': 'Word not found', 
-                            'error': f'No word exists with id {word_id}',
-                            'error_type': 'WordNotFound'
-                        }, 404
+            # 更新学习记录
+            db.add_learning_record(current_user, word_id, is_correct)
+            
+            # 更新单词统计
+            db.update_word_stats(word_id, is_correct)
+            
+            # 更新用户分数 - 根据正确性给予不同分数
+            score_change = 3 if is_correct else -2
+            db.update_user_score(current_user, score_change)
 
-                # Proceed with learning record update
-                db.update_word_stats(word_id, is_correct)
-                
-                # Calculate score change
-                score_change = 10 if is_correct else -10
-                
-                # Safely update user score
-                try:
-                    db.update_user_score(current_user, score_change)
-                except ValueError as ve:
-                    logger.error(f"Score update error: {ve}")
-                    return {
-                        'message': 'Invalid score update', 
-                        'error': str(ve),
-                        'error_type': 'ScoreUpdateError'
-                    }, 400
-                
-                # Optional: Add learning record
-                db.add_learning_record(current_user, word_id, is_correct)
-                
-                logger.info(f"Learning record updated for user: {current_user}, word: {word_id}, correct: {is_correct}")
-                
-                # Retrieve word details for response
-                word_details = db.get_word_details(word_id)
-                
-                return {
-                    'message': 'Learning record updated',
-                    'word_id': word_id,
-                    'is_correct': is_correct,
-                    'score_change': score_change,
-                    'correct_word': word_details
-                }, 200
-            
-            except jwt.ExpiredSignatureError:
-                logger.warning("Token has expired")
-                return {
-                    'message': 'Token has expired',
-                    'error_type': 'TokenExpired'
-                }, 401
-            
-            except jwt.InvalidTokenError:
-                logger.error("Invalid token")
-                return {
-                    'message': 'Invalid token',
-                    'error_type': 'InvalidToken'
-                }, 401
-            
-            except Exception as e:
-                logger.error(f"Unexpected authentication error: {str(e)}")
-                return {
-                    'message': 'Authentication failed',
-                    'error_type': 'UnexpectedAuthError',
-                    'error_details': str(e)
-                }, 401
-        
-        except Exception as e:
-            logger.error(f"Unexpected error during learning: {str(e)}", exc_info=True)
             return {
-                'message': 'Internal server error', 
-                'error': str(e), 
-                'traceback': traceback.format_exc(),
-                'error_type': 'UnexpectedError'
+                'message': '学习记录已更新',
+                'score_change': score_change,
+                'is_correct': is_correct
+            }, 200
+
+        except Exception as e:
+            logger.error(f"Error submitting learning result: {str(e)}")
+            return {
+                'message': '提交学习记录失败',
+                'error': str(e)
             }, 500
 
 class ResetProgressResource(Resource):
     @token_required
     def post(self, current_user):
-        """
-        Reset user's learning progress
-        """
+        """重置用户的学习进度"""
         try:
-            # 记录重置请求
-            logger.info(f"Reset progress request received for user: {current_user}")
-            
-            # 使用数据库连接重置进度
+            # 开始重置进度的事务
             with db.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # 1. 首先获取用户学习过的单词
-                cursor.execute('''
-                    SELECT DISTINCT word_id 
-                    FROM learning_records 
-                    WHERE user_id = ?
-                ''', (current_user,))
-                learned_words = cursor.fetchall()
+                # 重置单词学习进度
+                cursor.execute('DELETE FROM user_words WHERE user_id = ?', (current_user,))
                 
-                # 2. 重置这些单词的统计数据
-                if learned_words:
-                    word_ids = [word[0] for word in learned_words]
-                    placeholders = ','.join('?' * len(word_ids))
-                    cursor.execute(f'''
-                        UPDATE words 
-                        SET correct_times = 0, wrong_times = 0 
-                        WHERE id IN ({placeholders})
-                    ''', word_ids)
+                # 重置复习记录
+                cursor.execute('DELETE FROM review_records WHERE user_id = ?', (current_user,))
                 
-                # 3. 重置单词学习记录
-                cursor.execute('''
-                    DELETE FROM learning_records 
-                    WHERE user_id = ?
-                ''', (current_user,))
+                # 重置打卡记录
+                cursor.execute('DELETE FROM checkin_records WHERE user_id = ?', (current_user,))
                 
-                # 4. 重置用户分数
+                # 重置用户统计信息
                 cursor.execute('''
                     UPDATE users 
-                    SET total_score = 0 
+                    SET 
+                        total_learned_words = 0, 
+                        total_review_words = 0, 
+                        total_correct_words = 0, 
+                        total_wrong_words = 0,
+                        current_streak = 0,
+                        max_streak = 0
                     WHERE id = ?
                 ''', (current_user,))
                 
-                # 提交所有更改
+                # 提交事务
                 conn.commit()
-            
-            # 记录重置操作
-            logger.info(f"User {current_user} successfully reset their learning progress")
-            
-            return {
-                'message': '学习进度已成功重置',
-                'score': 0
-            }, 200
+                
+                logger.info(f"User {current_user} has reset all progress")
+                
+                return {
+                    'message': '成功重置所有学习进度',
+                    'success': True
+                }, 200
         
         except Exception as e:
-            # 详细的错误日志
-            logger.error(f"Error resetting user progress for user {current_user}: {str(e)}")
-            logger.error(f"Error type: {type(e).__name__}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            
+            logger.error(f"Error resetting progress for user {current_user}: {str(e)}", exc_info=True)
             return {
-                'message': '重置失败，请稍后重试',
-                'error': str(e),
-                'error_type': type(e).__name__
+                'message': '重置进度失败',
+                'error': str(e)
             }, 500
 
 class LearningStatsResource(Resource):
@@ -1004,17 +981,208 @@ class ReviewWordsResource(Resource):
             score_change = quality * 2  # 根据质量评分给予相应分数
             db.update_user_score(current_user, score_change)
 
+            # 返回成功响应
             return {
-                'message': '复习记录已更新',
-                'score_change': score_change
+                'message': '复习结果提交成功',
+                'score_change': score_change,
+                'is_correct': is_correct
             }, 200
 
         except Exception as e:
-            logger.error(f"Error submitting review: {str(e)}")
+            logger.error(f"Error submitting review result: {str(e)}")
             return {
-                'message': '提交复习记录失败',
+                'message': '提交复习结果失败',
+                'error': str(e),
+                'error_type': type(e).__name__
+            }, 500
+
+class LearningDetailsResource(Resource):
+    @token_required
+    def get(self, current_user):
+        """获取学习详情统计数据"""
+        try:
+            details = db.get_learning_details(current_user)
+            return {
+                'message': '获取学习详情成功',
+                'data': details
+            }, 200
+        except Exception as e:
+            logger.error(f"Error getting learning details: {str(e)}")
+            return {
+                'message': '获取学习详情失败',
                 'error': str(e)
             }, 500
+
+class TimeDistributionResource(Resource):
+    @token_required
+    def get(self, current_user):
+        """获取学习时间分布数据"""
+        try:
+            distribution = db.get_time_distribution(current_user)
+            return {
+                'message': '获取时间分布成功',
+                'data': distribution
+            }, 200
+        except Exception as e:
+            logger.error(f"Error getting time distribution: {str(e)}")
+            return {
+                'message': '获取时间分布失败',
+                'error': str(e)
+            }, 500
+
+class MasteryDistributionResource(Resource):
+    @token_required
+    def get(self, current_user):
+        """获取单词掌握度分布"""
+        try:
+            distribution = db.get_mastery_distribution(current_user)
+            return {
+                'message': '获取掌握度分布成功',
+                'data': distribution
+            }, 200
+        except Exception as e:
+            logger.error(f"Error getting mastery distribution: {str(e)}")
+            return {
+                'message': '获取掌握度分布失败',
+                'error': str(e)
+            }, 500
+
+class LearningHistoryResource(Resource):
+    @token_required
+    def get(self, current_user):
+        """获取学习历史记录"""
+        try:
+            limit = request.args.get('limit', default=50, type=int)
+            history = db.get_learning_history(current_user, limit)
+            return {
+                'message': '获取学习历史成功',
+                'data': history
+            }, 200
+        except Exception as e:
+            logger.error(f"Error getting learning history: {str(e)}")
+            return {
+                'message': '获取学习历史失败',
+                'error': str(e)
+            }, 500
+
+class ScheduleReviewResource(Resource):
+    @token_required
+    def post(self, current_user):
+        """安排单词复习时间"""
+        try:
+            data = request.get_json()
+            if not data:
+                return {'message': '没有提供数据'}, 400
+
+            word_id = data.get('word_id')
+            days = data.get('days')
+
+            if not word_id or not days:
+                return {'message': '缺少必要参数'}, 400
+
+            if not isinstance(days, int) or days < 1:
+                return {'message': '天数必须是大于0的整数'}, 400
+
+            # 安排复习时间
+            db.schedule_word_review(current_user, word_id, days)
+            
+            return {
+                'message': f'已安排{days}天后复习'
+            }, 200
+
+        except Exception as e:
+            logger.error(f"Error scheduling review: {str(e)}")
+            return {
+                'message': '安排复习失败',
+                'error': str(e)
+            }, 500
+
+class CheckinResource(Resource):
+    @token_required
+    def get(self, current_user):
+        """获取打卡状态和统计信息"""
+        try:
+            logger.info(f"Fetching checkin status for user {current_user}")
+            
+            # 调试：检查用户的打卡记录
+            try:
+                debug_info = db.debug_checkin_records(current_user)
+                logger.info(f"Debug checkin records: {debug_info}")
+            except Exception as debug_error:
+                logger.warning(f"Error in debug_checkin_records: {str(debug_error)}")
+            
+            # 获取今日打卡状态
+            today_status = None
+            try:
+                today_status = db.get_checkin_status(current_user)
+                logger.info(f"Today's checkin status: {today_status}")
+            except Exception as status_error:
+                logger.warning(f"Error getting today's checkin status: {str(status_error)}")
+            
+            # 获取打卡统计信息
+            stats = None
+            try:
+                stats = db.get_checkin_stats(current_user)
+                logger.info(f"Checkin stats: {stats}")
+            except Exception as stats_error:
+                logger.warning(f"Error getting checkin stats: {str(stats_error)}")
+            
+            # 如果两个方法都失败，抛出异常
+            if today_status is None and stats is None:
+                raise Exception(f"无法获取用户 {current_user} 的打卡信息")
+            
+            return {
+                'message': '获取打卡信息成功',
+                'today_status': today_status,
+                'stats': stats
+            }, 200
+        except Exception as e:
+            logger.error(f"Error getting checkin info for user {current_user}: {str(e)}", exc_info=True)
+            return {
+                'message': '获取打卡信息失败',
+                'error': str(e),
+                'details': traceback.format_exc()
+            }, 500
+
+    @token_required
+    def post(self, current_user):
+        """提交打卡"""
+        try:
+            data = request.get_json()
+            if not data:
+                logger.warning(f"User {current_user} attempted to check in with no data")
+                return {'message': '没有提供数据'}, 400
+
+            # 获取打卡日期和类型，默认为今天的正常打卡
+            checkin_date_str = data.get('date')
+            checkin_type = data.get('type', 'normal')
+
+            # 如果没有提供日期，使用今天的日期
+            if checkin_date_str:
+                try:
+                    checkin_date = datetime.strptime(checkin_date_str, '%Y-%m-%d').date()
+                except ValueError:
+                    logger.warning(f"Invalid date format: {checkin_date_str}")
+                    return {'message': '日期格式错误，应为YYYY-MM-DD'}, 400
+            else:
+                checkin_date = date.today()
+
+            logger.info(f"User {current_user} attempting to check in on {checkin_date} with type {checkin_type}")
+
+            # 提交打卡
+            result = db.submit_checkin(current_user, checkin_date, checkin_type)
+            
+            return {
+                'message': '打卡成功',
+                'data': result
+            }, 200
+
+        except Exception as e:
+            logger.error(f"Error submitting checkin for user {current_user}: {str(e)}")
+            return {
+                'message': str(e),  # 直接返回具体的错误信息
+                'error': str(e)
+            }, 400
 
 # 注册API路由
 api.add_resource(AuthResource, '/api/auth/login')
@@ -1029,6 +1197,12 @@ api.add_resource(LearningTrendResource, '/api/learning-trend')
 api.add_resource(MultipleChoiceResource, '/api/multiple-choice')
 api.add_resource(RandomWordResource, '/api/random-word')
 api.add_resource(ReviewWordsResource, '/api/review-words')
+api.add_resource(LearningDetailsResource, '/api/learning-details')
+api.add_resource(TimeDistributionResource, '/api/time-distribution')
+api.add_resource(MasteryDistributionResource, '/api/mastery-distribution')
+api.add_resource(LearningHistoryResource, '/api/learning-history')
+api.add_resource(ScheduleReviewResource, '/api/schedule-review')
+api.add_resource(CheckinResource, '/api/checkin')
 
 if __name__ == '__main__':
     app.run(debug=True)
